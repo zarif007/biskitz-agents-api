@@ -1,73 +1,98 @@
 from langgraph.graph import StateGraph, END
 from typing import TypedDict, List, Dict, Any
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from constants.system_prompts.system_architect import SYS_ARCH_SYSTEM_PROMPT
 import time
+import asyncio
+import logging
 
-# Define the state for the graph
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 class AgentState(TypedDict):
     messages: List[Dict[str, Any]]
 
-def system_architect_node(state: AgentState) -> AgentState:
-    """Node for the System Architect agent."""
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.7)
+async def system_architect_node(state: AgentState) -> AgentState:
+    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.7, max_retries=3)
     
-    # Extract the latest user message
-    user_message = state["messages"][-1]["content"]
+    conversation = state["messages"][-1]["content"]
     
-    # Create messages for the LLM
-    messages = [
-        SystemMessage(content=SYS_ARCH_SYSTEM_PROMPT),
-        HumanMessage(content=user_message)
-    ]
+    messages = [SystemMessage(content=SYS_ARCH_SYSTEM_PROMPT)]
+    for msg in conversation:
+        if not hasattr(msg, 'type') or not hasattr(msg, 'role') or not hasattr(msg, 'content'):
+            logger.error(f"Invalid message format: {msg}")
+            continue
+        if msg.type != "text":
+            logger.warning(f"Skipping non-text message: {msg}")
+            continue
+        if msg.role == "user":
+            messages.append(HumanMessage(content=msg.content))
+        elif msg.role == "assistant":
+            messages.append(AIMessage(content=msg.content))
+        elif msg.role == "system":
+            messages.append(SystemMessage(content=msg.content))
+        else:
+            logger.warning(f"Unknown role {msg.role} in message: {msg}")
     
-    # Invoke the LLM
-    response = llm.invoke(messages)
+    try:
+        response = await asyncio.wait_for(llm.ainvoke(messages), timeout=15000.0)
+        logger.info("LLM invocation successful")
+    except asyncio.TimeoutError:
+        logger.error("LLM invocation timed out after 15 seconds")
+        state["messages"].append({
+            "role": "assistant",
+            "content": "Timed out generating response. Please try again with a more specific conversation.",
+            "usage_metadata": {}
+        })
+        return state
+    except Exception as e:
+        logger.error(f"LLM invocation failed: {str(e)}")
+        state["messages"].append({
+            "role": "assistant",
+            "content": f"Error generating response: {str(e)}. Please try again.",
+            "usage_metadata": {}
+        })
+        return state
     
-    # Append the assistant's response to the state
-    state["messages"].append({"role": "assistant", "content": response.content, "usage_metadata": response.usage_metadata})
+    response_content = response.content or "Generated response for the request."
+    usage_metadata = getattr(response, "usage_metadata", {}) or {}
+    
+    state["messages"].append({
+        "role": "assistant",
+        "content": response_content,
+        "usage_metadata": usage_metadata
+    })
+    
     return state
 
-# Build the LangGraph workflow
 def create_system_architect_graph():
     workflow = StateGraph(AgentState)
     
-    # Add the System Architect node
     workflow.add_node("system_architect_node", system_architect_node)
     
-    # Set entry and exit points
     workflow.set_entry_point("system_architect_node")
     workflow.add_edge("system_architect_node", END)
     
     return workflow.compile()
 
-# Initialize the graph
 system_architect_graph = create_system_architect_graph()
 
-async def system_architect(prompt: str) -> Dict[str, Any]:
-    """Run the System Architect agent with the given prompt."""
+async def system_architect(conversation: List[Any]) -> Dict[str, Any]:
+    start_time = time.time()
     try:
-        # Initialize state with user prompt
         initial_state = {
-            "messages": [{"role": "user", "content": prompt.strip()}]
+            "messages": [{"role": "user", "content": conversation}]
         }
         
-        # Measure start time
-        start_time = time.time()
-        
-        # Run the graph
         result = await system_architect_graph.ainvoke(initial_state)
         
-        # Calculate time taken
         time_taken = time.time() - start_time
         
-        # Extract the assistant's response and metadata
         assistant_message = result["messages"][-1]
         response_content = assistant_message["content"]
         usage_metadata = assistant_message.get("usage_metadata", {})
         
-        # Prepare the response dictionary
         response = {
             "response": response_content,
             "time_taken_seconds": round(time_taken, 3),
@@ -78,10 +103,12 @@ async def system_architect(prompt: str) -> Dict[str, Any]:
             }
         }
         
+        logger.info(f"System Architect agent response: {response}")
         return response
     except Exception as e:
+        logger.error(f"Error in System Architect agent: {str(e)}")
         return {
-            "response": f"Error: {str(e)}",
-            "time_taken_seconds": 0.0,
+            "response": f"Error: {str(e)}. No response generated.",
+            "time_taken_seconds": round(time.time() - start_time, 3),
             "tokens": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         }
