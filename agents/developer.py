@@ -118,7 +118,7 @@ async def developer_node(state: CodeGenState) -> CodeGenState:
     
     max_iterations = 3
     iteration = 0
-    total_tokens = state.get("total_tokens", {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})
+    total_tokens = state.get("total_tokens", {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0})
     
     while iteration < max_iterations:
         iteration += 1
@@ -136,8 +136,8 @@ async def developer_node(state: CodeGenState) -> CodeGenState:
                 logger.info(f"Tool calls: {len(response.tool_calls) if response.tool_calls else 0}")
             
             usage_metadata = getattr(response, "usage_metadata", {}) or {}
-            total_tokens["prompt_tokens"] += usage_metadata.get("input_tokens", 0)
-            total_tokens["completion_tokens"] += usage_metadata.get("output_tokens", 0)
+            total_tokens["input_tokens"] += usage_metadata.get("input_tokens", 0)
+            total_tokens["output_tokens"] += usage_metadata.get("output_tokens", 0)
             total_tokens["total_tokens"] += usage_metadata.get("total_tokens", 0)
             
         except asyncio.TimeoutError:
@@ -270,7 +270,7 @@ async def developer(conversation: List[Message], current_folder: Dict[str, str],
             "files": current_folder.copy() if current_folder else {},
             "summary": None,
             "tdd_enabled": tdd_enabled,
-            "total_tokens": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+            "total_tokens": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
         }
         
         result = await developer_graph.ainvoke(initial_state)
@@ -298,8 +298,8 @@ async def developer(conversation: List[Message], current_folder: Dict[str, str],
             },
             "time_taken_seconds": round(time_taken, 3),
             "tokens": result.get("total_tokens", {
-                "prompt_tokens": usage_metadata.get("input_tokens", 0),
-                "completion_tokens": usage_metadata.get("output_tokens", 0),
+                "input_tokens": usage_metadata.get("input_tokens", 0),
+                "output_tokens": usage_metadata.get("output_tokens", 0),
                 "total_tokens": usage_metadata.get("total_tokens", 0)
             }),
             "files_count": files_count
@@ -312,6 +312,6 @@ async def developer(conversation: List[Message], current_folder: Dict[str, str],
             "response": f"Error: {str(e)}. No files generated.",
             "state": {"files": {}, "summary": None},
             "time_taken_seconds": round(time.time() - start_time, 3),
-            "tokens": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            "tokens": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
             "files_count": 0
         }

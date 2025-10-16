@@ -97,8 +97,8 @@ async def business_analyst(conversation: List[Any]) -> Dict[str, Any]:
             "response": response_content,
             "time_taken_seconds": round(time_taken, 3),
             "tokens": {
-                "prompt_tokens": usage_metadata.get("input_tokens", 0),
-                "completion_tokens": usage_metadata.get("output_tokens", 0),
+                "input_tokens": usage_metadata.get("input_tokens", 0),
+                "output_tokens": usage_metadata.get("output_tokens", 0),
                 "total_tokens": usage_metadata.get("total_tokens", 0)
             }
         }
@@ -110,5 +110,5 @@ async def business_analyst(conversation: List[Any]) -> Dict[str, Any]:
         return {
             "response": f"Error: {str(e)}. No response generated.",
             "time_taken_seconds": round(time.time() - start_time, 3),
-            "tokens": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+            "tokens": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
         }
