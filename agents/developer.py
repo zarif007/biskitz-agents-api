@@ -1,7 +1,7 @@
 from langgraph.graph import StateGraph, END
 from typing import TypedDict, List, Dict, Any
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
+from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 from constants.system_prompts.dev import DEV_AGENT_PROMPT
@@ -19,6 +19,8 @@ class CodeGenState(TypedDict):
     files: Dict[str, str]
     summary: str | None
     total_tokens: Dict[str, int]
+    model: str
+    tdd_enabled: bool
 
 class FileSchema(BaseModel):
     path: str = Field(..., description="The file path relative to project root (e.g., 'src/index.ts', 'package.json')")
@@ -79,14 +81,18 @@ def read_files(files: List[str], state_files: Dict[str, str] = None) -> str:
 
 async def developer_node(state: CodeGenState) -> CodeGenState:
     """Process developer node for code generation."""
-    llm = ChatOpenAI(model="gpt-4.1-mini", temperature=0.7, max_retries=3)
+    model_name = state.get("model", "o1-mini")
+    llm = ChatOpenAI(model=model_name, max_retries=3)
     
     tdd_enabled = state.get("tdd_enabled", False)
     system_prompt = DEV_AGENT_PROMPT if tdd_enabled else DEV_AGENT_NO_TDD_PROMPT
     
     conversation = state["messages"][-1]["content"]
     
-    messages = [SystemMessage(content=system_prompt)]
+    messages = []
+    first_user_content = f"{system_prompt}\n\n"
+    user_messages = []
+    
     for msg in conversation:
         if not hasattr(msg, 'type') or not hasattr(msg, 'role') or not hasattr(msg, 'content'):
             logger.error(f"Invalid message format: {msg}")
@@ -94,22 +100,24 @@ async def developer_node(state: CodeGenState) -> CodeGenState:
         if msg.type != "text":
             logger.warning(f"Skipping non-text message: {msg}")
             continue
+        
         if msg.role == "user":
-            messages.append(HumanMessage(content=msg.content))
+            user_messages.append(msg.content)
         elif msg.role == "assistant":
             messages.append(AIMessage(content=msg.content))
-        elif msg.role == "system":
-            messages.append(SystemMessage(content=msg.content))
         elif msg.role == "tool":
             messages.append(ToolMessage(content=msg.content, tool_call_id=msg.get("tool_call_id", "unknown")))
-        else:
-            logger.warning(f"Unknown role {msg.role} in message: {msg}")
     
-    if state.get("files"):
-        file_list = "\n".join([f"- {path}" for path in state["files"].keys()])
-        context = f"\n\nExisting files in project:\n{file_list}"
-        if messages[-1].type == "human":
-            messages[-1].content += context
+    if user_messages:
+        if state.get("files"):
+            file_list = "\n".join([f"- {path}" for path in state["files"].keys()])
+            first_user_content += f"\nExisting files in project:\n{file_list}\n\n"
+        
+        first_user_content += user_messages[0]
+        messages.insert(0, HumanMessage(content=first_user_content))
+        
+        for user_msg in user_messages[1:]:
+            messages.append(HumanMessage(content=user_msg))
     
     llm_with_tools = llm.bind_tools(
         [create_or_update_files, read_files],
@@ -118,7 +126,7 @@ async def developer_node(state: CodeGenState) -> CodeGenState:
     
     max_iterations = 3
     iteration = 0
-    total_tokens = state.get("total_tokens", {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0})
+    total_tokens = state.get("total_tokens", {"input_tokens": 0, "output_tokens": 0, "reasoning_tokens": 0, "total_tokens": 0})
     
     while iteration < max_iterations:
         iteration += 1
@@ -127,7 +135,7 @@ async def developer_node(state: CodeGenState) -> CodeGenState:
         try:
             response = await asyncio.wait_for(
                 llm_with_tools.ainvoke(messages), 
-                timeout=15000.0
+                timeout=60.0
             )
             logger.info(f"✅ LLM invocation successful (iteration {iteration})")
             logger.info(f"Response type: {type(response)}, has tool_calls: {hasattr(response, 'tool_calls')}")
@@ -138,6 +146,7 @@ async def developer_node(state: CodeGenState) -> CodeGenState:
             usage_metadata = getattr(response, "usage_metadata", {}) or {}
             total_tokens["input_tokens"] += usage_metadata.get("input_tokens", 0)
             total_tokens["output_tokens"] += usage_metadata.get("output_tokens", 0)
+            total_tokens["reasoning_tokens"] += usage_metadata.get("reasoning_tokens", 0)
             total_tokens["total_tokens"] += usage_metadata.get("total_tokens", 0)
             
         except asyncio.TimeoutError:
@@ -261,7 +270,7 @@ def create_developer_graph():
 
 developer_graph = create_developer_graph()
 
-async def developer(conversation: List[Message], current_folder: Dict[str, str], tdd_enabled: bool) -> Dict[str, Any]:
+async def developer(conversation: List[Message], current_folder: Dict[str, str], tdd_enabled: bool, model: str) -> Dict[str, Any]:
     """Run the Developer agent with the given conversation, current folder, and TDD setting."""
     start_time = time.time()
     try:
@@ -270,7 +279,8 @@ async def developer(conversation: List[Message], current_folder: Dict[str, str],
             "files": current_folder.copy() if current_folder else {},
             "summary": None,
             "tdd_enabled": tdd_enabled,
-            "total_tokens": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+            "model": model,
+            "total_tokens": {"input_tokens": 0, "output_tokens": 0, "reasoning_tokens": 0, "total_tokens": 0}
         }
         
         result = await developer_graph.ainvoke(initial_state)
@@ -300,6 +310,7 @@ async def developer(conversation: List[Message], current_folder: Dict[str, str],
             "tokens": result.get("total_tokens", {
                 "input_tokens": usage_metadata.get("input_tokens", 0),
                 "output_tokens": usage_metadata.get("output_tokens", 0),
+                "reasoning_tokens": usage_metadata.get("reasoning_tokens", 0),
                 "total_tokens": usage_metadata.get("total_tokens", 0)
             }),
             "files_count": files_count
@@ -312,6 +323,6 @@ async def developer(conversation: List[Message], current_folder: Dict[str, str],
             "response": f"Error: {str(e)}. No files generated.",
             "state": {"files": {}, "summary": None},
             "time_taken_seconds": round(time.time() - start_time, 3),
-            "tokens": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
+            "tokens": {"input_tokens": 0, "output_tokens": 0, "reasoning_tokens": 0, "total_tokens": 0},
             "files_count": 0
         }

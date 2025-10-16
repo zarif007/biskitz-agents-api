@@ -8,18 +8,14 @@ from agents.developer import developer
 from dotenv import load_dotenv
 import os
 
-# Load environment variables
 load_dotenv()
 
-# Get the API key from environment variables
 API_KEY = os.getenv("API_KEY")
 if not API_KEY:
     raise RuntimeError("API_KEY not set in .env file")
 
-# Define API key header
 api_key_header = APIKeyHeader(name="Authorization", auto_error=False)
 
-# Dependency to validate API key
 async def verify_api_key(authorization: str = Depends(api_key_header)):
     if authorization != f"Bearer {API_KEY}":
         raise HTTPException(
@@ -31,7 +27,6 @@ async def verify_api_key(authorization: str = Depends(api_key_header)):
 
 app = FastAPI()
 
-# Define Pydantic models for the request bodies
 class Message(BaseModel):
     type: str
     role: str
@@ -42,11 +37,13 @@ class PromptRequest(BaseModel):
 
 class CovRequest(BaseModel):
     conversation: List[Message]
+    model: str
 
 class DeveloperRequest(BaseModel):
     conversation: List[Message]
     current_folder: Dict[str, str]
     tdd_enabled: bool
+    model: str
 
 @app.get("/", dependencies=[Depends(verify_api_key)])
 def read_root():
@@ -54,18 +51,15 @@ def read_root():
 
 @app.post("/agents/ba", dependencies=[Depends(verify_api_key)])
 async def run_ba_agent(request: CovRequest):
-    """Run the Business Analyst agent."""
-    response = await business_analyst(request.conversation)
+    response = await business_analyst(request.conversation, request.model)
     return response
 
 @app.post("/agents/system-architect", dependencies=[Depends(verify_api_key)])
 async def run_system_architect_agent(request: CovRequest):
-    """Run the System Architect agent."""
-    response = await system_architect(request.conversation)
+    response = await system_architect(request.conversation, request.model)
     return response
 
 @app.post("/agents/developer", dependencies=[Depends(verify_api_key)])
 async def run_developer_agent(request: DeveloperRequest):
-    """Run the Developer agent."""
-    response = await developer(request.conversation, request.current_folder, request.tdd_enabled)
+    response = await developer(request.conversation, request.current_folder, request.tdd_enabled, request.model)
     return response

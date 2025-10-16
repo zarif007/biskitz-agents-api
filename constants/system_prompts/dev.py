@@ -47,6 +47,7 @@ following **Test-Driven Development (TDD)**.
      - Edge case examples or advanced usage if relevant
      - Any configuration, customization, or extension options
    - The README must be clear, accurate, and sufficient for a new developer to understand and use the package effectively.
+   - If any code is updated, ensure the README reflects those changes.
 
 ## Output Rules:
 - Only create/update files using the \`createOrUpdateFiles\` tool.

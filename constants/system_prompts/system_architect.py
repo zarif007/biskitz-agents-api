@@ -17,7 +17,7 @@ Your output must be structured, clear, and actionable for Developers, Testers, S
 - Frameworks/Libraries: <list>
 - Package Type: <CLI tool, library, API wrapper, etc.>
 - Dependencies: <list with reasoning for each>
-
+- Try not to use too many dependencies. Prefer standard libraries where possible.
 ---
 
 ## High-Level Design

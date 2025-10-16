@@ -1,7 +1,7 @@
 from langgraph.graph import StateGraph, END
 from typing import TypedDict, List, Dict, Any
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+from langchain_core.messages import HumanMessage, AIMessage
 from constants.system_prompts.system_architect import SYS_ARCH_SYSTEM_PROMPT
 import time
 import asyncio
@@ -12,13 +12,18 @@ logger = logging.getLogger(__name__)
 
 class AgentState(TypedDict):
     messages: List[Dict[str, Any]]
+    model: str
 
 async def system_architect_node(state: AgentState) -> AgentState:
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.7, max_retries=3)
+    model_name = state.get("model")
+    llm = ChatOpenAI(model=model_name, max_retries=3)
     
     conversation = state["messages"][-1]["content"]
     
-    messages = [SystemMessage(content=SYS_ARCH_SYSTEM_PROMPT)]
+    messages = []
+    first_user_content = f"{SYS_ARCH_SYSTEM_PROMPT}\n\n"
+    user_messages = []
+    
     for msg in conversation:
         if not hasattr(msg, 'type') or not hasattr(msg, 'role') or not hasattr(msg, 'content'):
             logger.error(f"Invalid message format: {msg}")
@@ -26,20 +31,24 @@ async def system_architect_node(state: AgentState) -> AgentState:
         if msg.type != "text":
             logger.warning(f"Skipping non-text message: {msg}")
             continue
+        
         if msg.role == "user":
-            messages.append(HumanMessage(content=msg.content))
+            user_messages.append(msg.content)
         elif msg.role == "assistant":
             messages.append(AIMessage(content=msg.content))
-        elif msg.role == "system":
-            messages.append(SystemMessage(content=msg.content))
-        else:
-            logger.warning(f"Unknown role {msg.role} in message: {msg}")
+    
+    if user_messages:
+        first_user_content += user_messages[0]
+        messages.insert(0, HumanMessage(content=first_user_content))
+        
+        for user_msg in user_messages[1:]:
+            messages.append(HumanMessage(content=user_msg))
     
     try:
-        response = await asyncio.wait_for(llm.ainvoke(messages), timeout=15000.0)
+        response = await asyncio.wait_for(llm.ainvoke(messages), timeout=60.0)
         logger.info("LLM invocation successful")
     except asyncio.TimeoutError:
-        logger.error("LLM invocation timed out after 15 seconds")
+        logger.error("LLM invocation timed out")
         state["messages"].append({
             "role": "assistant",
             "content": "Timed out generating response. Please try again with a more specific conversation.",
@@ -78,11 +87,12 @@ def create_system_architect_graph():
 
 system_architect_graph = create_system_architect_graph()
 
-async def system_architect(conversation: List[Any]) -> Dict[str, Any]:
+async def system_architect(conversation: List[Any], model: str) -> Dict[str, Any]:
     start_time = time.time()
     try:
         initial_state = {
-            "messages": [{"role": "user", "content": conversation}]
+            "messages": [{"role": "user", "content": conversation}],
+            "model": model
         }
         
         result = await system_architect_graph.ainvoke(initial_state)
@@ -99,6 +109,7 @@ async def system_architect(conversation: List[Any]) -> Dict[str, Any]:
             "tokens": {
                 "input_tokens": usage_metadata.get("input_tokens", 0),
                 "output_tokens": usage_metadata.get("output_tokens", 0),
+                "reasoning_tokens": usage_metadata.get("reasoning_tokens", 0),
                 "total_tokens": usage_metadata.get("total_tokens", 0)
             }
         }
@@ -110,5 +121,5 @@ async def system_architect(conversation: List[Any]) -> Dict[str, Any]:
         return {
             "response": f"Error: {str(e)}. No response generated.",
             "time_taken_seconds": round(time.time() - start_time, 3),
-            "tokens": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+            "tokens": {"input_tokens": 0, "output_tokens": 0, "reasoning_tokens": 0, "total_tokens": 0}
         }
