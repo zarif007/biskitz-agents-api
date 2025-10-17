@@ -135,7 +135,7 @@ async def developer_node(state: CodeGenState) -> CodeGenState:
         try:
             response = await asyncio.wait_for(
                 llm_with_tools.ainvoke(messages), 
-                timeout=60.0
+                timeout=15000.0
             )
             logger.info(f"✅ LLM invocation successful (iteration {iteration})")
             logger.info(f"Response type: {type(response)}, has tool_calls: {hasattr(response, 'tool_calls')}")

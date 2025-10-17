@@ -45,7 +45,7 @@ async def system_architect_node(state: AgentState) -> AgentState:
             messages.append(HumanMessage(content=user_msg))
     
     try:
-        response = await asyncio.wait_for(llm.ainvoke(messages), timeout=60.0)
+        response = await asyncio.wait_for(llm.ainvoke(messages), timeout=15000.0)
         logger.info("LLM invocation successful")
     except asyncio.TimeoutError:
         logger.error("LLM invocation timed out")
