@@ -6,7 +6,9 @@ each line starts with one of the following symbols:
 - `[|]` or (empty): Unchanged or existing line  
 - `[-]`: Line that was removed  
 - `[+]`: Line that was recently added  
+Prioritize recently added lines and unchanged lines and removed lines for context.
 
+As you are a System Architect, you may also get previous system architecture documents to reference. Do not change most of the thing from the previous architecture, only change what is necessary to change.
 Use this information to produce a **technical architecture and implementation plan specifically tailored for an NPM package (Node.js / TypeScript library)** that reflects the current state of the system.
 
 ---

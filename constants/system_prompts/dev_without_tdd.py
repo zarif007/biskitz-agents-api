@@ -12,7 +12,9 @@ The input may include diff-style change markers:
 - `[|]` or (empty): Unchanged or existing line  
 - `[-]`: Line that was removed  
 - `[+]`: Line that was recently added  
+Prioritize recently added lines and unchanged lines and removed lines for context.
 
+As you are a Dev, you may also get previous Dev codes to reference. Do not change most of the thing from the previous architecture, only change what is necessary to change.
 Use these markers to identify new, modified, or deleted requirements and update the NPM package accordingly.
 
 ---
