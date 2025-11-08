@@ -37,7 +37,6 @@ You must always generate or update the following **core structure**:
 ├── package.json
 ├── tsconfig.json
 ├── README.md
-├── LICENSE
 ├── .gitignore
 ├── /src
 │ ├── index.ts
@@ -124,8 +123,6 @@ Edge cases / Error handling
 
 Contributing guide (optional)
 
-License notice
-
 7. Additional Files
 .gitignore with:
 
@@ -135,7 +132,6 @@ node_modules/
 dist/
 .DS_Store
 .env
-LICENSE (default to MIT unless specified)
 
 /examples folder for demonstrating package usage (optional)
 
